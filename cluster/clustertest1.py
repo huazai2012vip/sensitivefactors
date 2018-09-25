@@ -1,95 +1,64 @@
 # -*- coding: utf-8 -*-
 """
-Created on Fri Sep 21 14:48:43 2018
+Created on Fri Sep 21 15:14:43 2018
 
 @author: fuhua
 """
+
+# coding:utf-8
  
 # 2.0 使用jieba进行分词,彻底放弃低效的NLPIR,用TextRank算法赋值权重(实测textrank效果更好)
 # 2.1 用gensim搞tfidf
 # 2.2 sklearn做tfidf和kmeans
 # 2.3 将kmeans改成BIRCH,使用传统tfidf
  
-import os,time,copy,logging
+import os,sys,time,codecs
 import jieba
 import glob
-import random
-import chardet
-import gensim
-from gensim import corpora,similarities, models
+#import gensim
+#from gensim import corpora,similarities, models
 from pprint import pprint
 import jieba.analyse
-from sklearn import feature_extraction
+
 from sklearn.feature_extraction.text import TfidfTransformer
 from sklearn.feature_extraction.text import CountVectorizer
+
 from sklearn.decomposition import PCA
- 
- 
- 
-# logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s', level=logging.INFO)
- 
+from sklearn.cluster import KMeans
+from sklearn.cluster import Birch
+
+import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+import numpy as np
+
 start = time.clock()
  
-print '#----------------------------------------#'
-print '#                                        #'
-print '#              载入语料库                #'
-print '#                                        #'
-print '#----------------------------------------#\n'
+'''#----------------------------------------#'
+  '#                                        #'
+  '#               载入语料库                #'
+  '#                                        #'
+  '#----------------------------------------#'''
 def PreprocessDoc(root):
- 
-    allDirPath = [] # 存放语料库数据集文件夹下面左右的文件夹路径,string,[1:]为所需
-    fileNumList = []
- 
-    def processDirectory(args, dirname, filenames, fileNum=0):
-        allDirPath.append(dirname)
-        for filename in filenames:
-            fileNum += 1
-        fileNumList.append(fileNum)
-    os.path.walk(root, processDirectory, None)
-    totalFileNum = sum(fileNumList)
-    print '总文件数为: ' + str(totalFileNum)
+    print( '开始载入语料库:')
+    allDirPath = [] # 存放语料库中所有文件的绝对路径
+    
+    g = os.walk(root)
+    for par_dir, _, files in g:
+        for file in files:
+            filepath = os.path.join(par_dir, file)
+            allDirPath.append(filepath)
+
+    
+    totalFileNum = len(allDirPath)
+    print( '总文件数为: ' + str(totalFileNum))
  
     return allDirPath
- 
- 
-print '#----------------------------------------#'
-print '#                                        #'
-print '#              合成语料文档                #'
-print '#                                        #'
-print '#----------------------------------------#\n'
- 
-# 每个文档一行,第一个词是这个文档的类别
- 
-def SaveDoc(allDirPath, docPath, stopWords):
- 
-    print '开始合成语料文档:'
- 
-    category = 1 # 文档的类别
-    f = open(docPath,'w') # 把所有的文本都集合在这个文档里
- 
-    for dirParh in allDirPath[1:]:
- 
-        for filePath in glob.glob(dirParh + '/*.txt'):
- 
-            data = open(filePath, 'r').read()
-            texts = DeleteStopWords(data, stopWords)
-            line = '' # 把这些词缩成一行,第一个位置是文档类别,用空格分开
-            for word in texts:
-                if word.encode('utf-8') == '\n' or word.encode('utf-8') == 'nbsp' or word.encode('utf-8') == '\r\n':
-                    continue
-                line += word.encode('utf-8')
-                line += ' '
-            f.write(line + '\n') # 把这行写进文件
-        category += 1 # 扫完一个文件夹,类别+1
- 
-    return 0 # 生成文档,不用返回值
- 
- 
-print '#----------------------------------------#'
-print '#                                        #'
-print '#             分词+去停用词               #'
-print '#                                        #'
-print '#----------------------------------------#\n'
+
+'''#----------------------------------------#'
+  '#                                        #'
+  '#             分词+去停用词               #'
+  '#                                        #'
+  '#----------------------------------------#'''
 def DeleteStopWords(data, stopWords):
  
     wordList = []
@@ -97,25 +66,52 @@ def DeleteStopWords(data, stopWords):
     # 先分一下词
     cutWords = jieba.cut(data)
     for item in cutWords:
-        if item.encode('utf-8') not in stopWords: # 分词编码要和停用词编码一致
+        if item not in stopWords: # 分词编码要和停用词编码一致
             wordList.append(item)
  
     return wordList
  
  
-print '#----------------------------------------#'
-print '#                                        #'
-print '#                 tf-idf                 #'
-print '#                                        #'
-print '#----------------------------------------#\n'
+'''#----------------------------------------#'
+  '#                                        #'
+  '#              合成语料文档               #'
+  '#                                        #'
+  '#----------------------------------------#'''
+ 
+# 每个文档一行,第一个词是这个文档的类别
+ 
+def SaveDoc(allDirPath, docPath, stopWords):
+ 
+    print( '开始合成语料文档:')    
+    with codecs.open(docPath,'w') as f:# 把所有的文本都集合在这个文档里
+        for filePath in allDirPath:     
+            data = codecs.open(filePath, 'rb').read()
+            texts = DeleteStopWords(data, stopWords)
+            line = '' # 把这些词缩成一行,第一个位置是文档类别,用空格分开
+            for word in texts:
+                if word == '\n' or word == 'nbsp' or word == '\r\n':
+                    continue
+                line += word
+                line += ' '
+            f.write(line + '\n') # 把这行写进文件
+    return 0 # 生成文档,不用返回值
+ 
+ 
+ 
+ 
+'''#----------------------------------------#'
+  '#                                        #'
+  '#                 tf-idf                 #'
+  '#                                        #'
+  '#----------------------------------------#'''
 def TFIDF(docPath):
  
-    print '开始tfidf:'
+    print( '开始tfidf:')
  
     corpus = [] # 文档语料
  
-    # 读取语料,一行语料为一个文档
-    lines = open(docPath,'r').readlines()
+    with codecs.open(docPath,'r') as f:# 读取语料,一行语料为一个文档
+        lines = f.readlines()
     for line in lines:
         corpus.append(line.strip()) # strip()前后空格都没了,但是中间空格还保留
  
@@ -133,8 +129,8 @@ def TFIDF(docPath):
  
     # 将tf-idf矩阵抽取出来，元素w[i][j]表示j词在i类文本中的tf-idf权重
     weight = tfidf.toarray()
-    print weight
- 
+    print( weight)
+
     # # 输出所有词
     # result = open(docPath, 'w')
     # for j in range(len(word)):
@@ -148,91 +144,86 @@ def TFIDF(docPath):
     #     result.write('\r\n\r\n')
     #
     # result.close()
- 
     return weight
  
  
-print '#----------------------------------------#'
-print '#                                        #'
-print '#                   PCA                  #'
-print '#                                        #'
-print '#----------------------------------------#\n'
-def PCA(weight, dimension):
+'''#----------------------------------------#'
+  '#                                        #'
+  '#                   PCA                  #'
+  '#                                        #'
+  '#----------------------------------------#'''
+def pPCA(weight, dimension):
  
-    from sklearn.decomposition import PCA
+    print( '开始进行PCA主成分分析:')
  
-    print '原有维度: ', len(weight[0])
-    print '开始降维:'
+    print( '原有维度: ', len(weight[0]))
+    print( '开始降维:')
  
     pca = PCA(n_components=dimension) # 初始化PCA
     X = pca.fit_transform(weight) # 返回降维后的数据
-    print '降维后维度: ', len(X[0])
-    print X
+    print( '降维后维度: ', len(X[0]))
+    print( X)
  
     return X
  
  
-print '#----------------------------------------#'
-print '#                                        #'
-print '#                 k-means                #'
-print '#                                        #'
-print '#----------------------------------------#\n'
+'''#----------------------------------------#'
+  '#                                        #'
+  '#                 k-means                #'
+  '#                                        #'
+  '#----------------------------------------#'''
 def kmeans(X, k): # X=weight
  
-    from sklearn.cluster import KMeans
- 
-    print '开始聚类:'
+    print( '开始K-Means聚类:')
  
     clusterer = KMeans(n_clusters=k, init='k-means++') # 设置聚类模型
  
     # X = clusterer.fit(weight) # 根据文本向量fit
-    # print X
-    # print clf.cluster_centers_
+    # print( X)
+    # print( clf.cluster_centers_)
  
     # 每个样本所属的簇
     y = clusterer.fit_predict(X) # 把weight矩阵扔进去fit一下,输出label
-    print y
+    print( y)
  
     # i = 1
     # while i <= len(y):
     #     i += 1
  
     # 用来评估簇的个数是否合适,距离约小说明簇分得越好,选取临界点的簇的个数
-    # print clf.inertia_
+    # print( clf.inertia_)
  
     return y
  
  
-print '#----------------------------------------#'
-print '#                                        #'
-print '#                 BIRCH                 #'
-print '#                                        #'
-print '#----------------------------------------#\n'
+'''#----------------------------------------#'
+  '#                                        #'
+  '#                 BIRCH                 #'
+  '#                                        #'
+  '#----------------------------------------#'''
 def birch(X, k): # 待聚类点阵,聚类个数
  
-    from sklearn.cluster import Birch
- 
-    print '开始聚类:'
+    print( '开始BIRCH聚类:')
  
     clusterer = Birch(n_clusters=k)
  
     y = clusterer.fit_predict(X)
-    print '输出聚类结果:'
-    print y
+    print( '输出聚类结果:')
+    print( y)
  
     return y
  
  
-print '#----------------------------------------#'
-print '#                                        #'
-print '#                轮廓系数                 #'
-print '#                                        #'
-print '#----------------------------------------#\n'
+'''#----------------------------------------#'
+  '#                                        #'
+  '#                轮廓系数                 #'
+  '#                                        #'
+  '#----------------------------------------#'''
 def Silhouette(X, y):
  
     from sklearn.metrics import silhouette_samples, silhouette_score
  
-    print '计算轮廓系数:'
+    print( '计算轮廓系数:')
  
     silhouette_avg = silhouette_score(X, y) # 平均轮廓系数
     sample_silhouette_values = silhouette_samples(X, y) # 每个点的轮廓系数
@@ -242,17 +233,15 @@ def Silhouette(X, y):
     return silhouette_avg, sample_silhouette_values
  
  
-print '#----------------------------------------#'
-print '#                                        #'
-print '#                  画图                  #'
-print '#                                        #'
-print '#----------------------------------------#\n'
+'''#----------------------------------------#'
+  '#                                        #'
+  '#                  画图                  #'
+  '#                                        #'
+  '#----------------------------------------#'''
 def Draw(silhouette_avg, sample_silhouette_values, y, k):
- 
-    import matplotlib.pyplot as plt
-    import matplotlib.cm as cm
-    import numpy as np
- 
+
+    print( '开始画图:')
+    
     # 创建一个 subplot with 1-row 2-column
     fig, ax1 = plt.subplots(1)
     fig.set_size_inches(18, 7)
@@ -274,7 +263,7 @@ def Draw(silhouette_avg, sample_silhouette_values, y, k):
         size_cluster_i = ith_cluster_silhouette_values.shape[0]
         y_upper = y_lower + size_cluster_i
  
-        color = cm.spectral(float(i)/k) # 搞一款颜色
+        color = cm.nipy_spectral(float(i)/k) # 搞一款颜色
         ax1.fill_betweenx(np.arange(y_lower, y_upper),
                           0,
                           ith_cluster_silhouette_values,
@@ -299,17 +288,20 @@ def Draw(silhouette_avg, sample_silhouette_values, y, k):
  
  
 if __name__ == "__main__":
- 
-    root = '/Users/John/Desktop/test'
-    stopWords = open('/Users/John/Documents/NLPStudy/stopwords-utf8', 'r').read()
-    docPath = '/Users/John/Desktop/test/doc.txt'
-    k = 3
+    
+    root = 'D:/practicePython/sensitivefactors/cluster/SogouCorpus-ch'
+    docPath = 'D:/practicePython/sensitivefactors/cluster/doc.txt'
+    
+    with codecs.open('D:/practicePython/sensitivefactors/cluster/stopwords.dat', 'r', encoding='utf-8') as f:# 把所有的文本都集合在这个文档里
+        stopWords = f.read().split()
+        
+    k = 3 #聚类数量：3
  
     allDirPath = PreprocessDoc(root)
     SaveDoc(allDirPath, docPath, stopWords)
  
     weight = TFIDF(docPath)
-    X = PCA(weight, dimension=800) # 将原始权重数据降维
+    X = pPCA(weight, dimension=0.8) # 将原始权重数据降维
     # y = kmeans(X, k) # y=聚类后的类标签
     y = birch(X, k)
     silhouette_avg, sample_silhouette_values = Silhouette(X, y) # 轮廓系数
@@ -317,10 +309,14 @@ if __name__ == "__main__":
  
  
 end = time.clock()
-print '运行时间: ' + str(end - start)
- 
- 
- 
- 
- 
+print( '运行时间: ' + str(end - start))
 
+'''----------* 测试文件编码格式 *-------------'''
+#import chardet
+#path = 'D:/practicePython/sensitivefactors/cluster/doc.txt'
+#f = open(path,'rb')
+#data = f.read()
+#print(chardet.detect(data)) 
+ 
+ 
+ 
