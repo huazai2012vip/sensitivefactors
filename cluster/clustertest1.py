@@ -295,7 +295,7 @@ if __name__ == "__main__":
     with codecs.open('D:/practicePython/sensitivefactors/cluster/stopwords.dat', 'r', encoding='utf-8') as f:# 把所有的文本都集合在这个文档里
         stopWords = f.read().split()
         
-    k = 3 #聚类数量：3
+    k = 10 #聚类数量
  
     allDirPath = PreprocessDoc(root)
     SaveDoc(allDirPath, docPath, stopWords)
